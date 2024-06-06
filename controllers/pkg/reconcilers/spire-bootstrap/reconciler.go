@@ -27,7 +27,7 @@ import (
 )
 
 func init() {
-	reconcilerinterface.Register("bootstrapsecrets", &reconciler{})
+	reconcilerinterface.Register("spire-bootstrapsecrets", &reconciler{})
 }
 
 const (
