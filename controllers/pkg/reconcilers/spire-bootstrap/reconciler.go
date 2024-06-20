@@ -22,7 +22,6 @@ import (
 	reconcilerinterface "github.com/nephio-project/nephio/controllers/pkg/reconcilers/reconciler-interface"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"sigs.k8s.io/cluster-api/api/v1beta1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,8 +57,16 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	log := log.FromContext(ctx)
 
 	// Fetch the Cluster instance
-	cluster := &v1beta1.ClusterClass{}
-	err := r.Get(ctx, req.NamespacedName, cluster)
+
+	// List all Cluster instances
+	clusterList := &capiv1beta1.ClusterList{}
+	err := r.List(ctx, clusterList)
+	if err != nil {
+		log.Error(err, "unable to list Clusters")
+		return reconcile.Result{}, err
+	}
+	cluster := &capiv1beta1.Cluster{}
+	err = r.Get(ctx, req.NamespacedName, cluster)
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			log.Error(err, "unable to fetch Cluster")
