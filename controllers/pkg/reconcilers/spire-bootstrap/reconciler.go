@@ -19,17 +19,19 @@ package bootstrapsecret
 import (
 	"context"
 	"fmt"
-	"strings"
+	"io"
+	"net/http"
+	"os"
 	"time"
 
 	reconcilerinterface "github.com/nephio-project/nephio/controllers/pkg/reconcilers/reconciler-interface"
-	"github.com/nephio-project/nephio/controllers/pkg/resource"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/nephio-project/nephio/controllers/pkg/cluster"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,7 +42,7 @@ import (
 )
 
 func init() {
-	reconcilerinterface.Register("bootstrap-spire", &reconciler{})
+	reconcilerinterface.Register("WorkloadIdentity", &reconciler{})
 }
 
 // const (
@@ -104,73 +106,148 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return reconcile.Result{}, err
 	}
 
-	secrets := &corev1.SecretList{}
-	if err := r.List(ctx, secrets); err != nil {
-		msg := "cannot list secrets"
-		log.Error(err, msg)
-		return ctrl.Result{}, errors.Wrap(err, msg)
+	// secrets := &corev1.SecretList{}
+	// if err := r.List(ctx, secrets); err != nil {
+	// 	msg := "cannot list secrets"
+	// 	log.Error(err, msg)
+	// 	return ctrl.Result{}, errors.Wrap(err, msg)
+	// }
+
+	// found := false
+	// for _, secret := range secrets.Items {
+	// 	if strings.Contains(secret.GetName(), cl.Name) {
+	// 		secret := secret // required to prevent gosec warning: G601 (CWE-118): Implicit memory aliasing in for loop
+	// 		clusterClient, ok := cluster.Cluster{Client: r.Client}.GetClusterClient(&secret)
+	// 		if ok {
+	// 			found = true
+	// 			clusterClient, ready, err := clusterClient.GetClusterClient(ctx)
+	// 			if err != nil {
+	// 				msg := "cannot get clusterClient"
+	// 				log.Error(err, msg)
+	// 				return ctrl.Result{RequeueAfter: 30 * time.Second}, errors.Wrap(err, msg)
+	// 			}
+	// 			if !ready {
+	// 				log.Info("cluster not ready")
+	// 				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	// 			}
+
+	// 			remoteNamespace := configMap.Namespace
+	// 			// if rns, ok := configMap.GetAnnotations()[remoteNamespaceKey]; ok {
+	// 			// 	remoteNamespace = rns
+	// 			// }
+	// 			// check if the remote namespace exists, if not retry
+	// 			ns := &corev1.Namespace{}
+	// 			if err = clusterClient.Get(ctx, types.NamespacedName{Name: remoteNamespace}, ns); err != nil {
+	// 				if resource.IgnoreNotFound(err) != nil {
+	// 					msg := fmt.Sprintf("cannot get namespace: %s", remoteNamespace)
+	// 					log.Error(err, msg)
+	// 					return ctrl.Result{RequeueAfter: 30 * time.Second}, errors.Wrap(err, msg)
+	// 				}
+	// 				msg := fmt.Sprintf("namespace: %s, does not exist, retry...", remoteNamespace)
+	// 				log.Info(msg)
+	// 				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	// 			}
+
+	// 			newcr := configMap.DeepCopy()
+
+	// 			newcr.ResourceVersion = ""
+	// 			newcr.UID = ""
+	// 			newcr.Namespace = remoteNamespace
+	// 			log.Info("secret info", "secret", newcr.Annotations)
+	// 			if err := clusterClient.Apply(ctx, newcr); err != nil {
+	// 				msg := fmt.Sprintf("cannot apply secret to cluster %s", cl.Name)
+	// 				log.Error(err, msg)
+	// 				return ctrl.Result{}, errors.Wrap(err, msg)
+	// 			}
+	// 		}
+	// 	}
+	// 	if found {
+	// 		// speeds up the loop
+	// 		break
+	// 	}
+	// }
+
+	// // Example: Update the status if necessary
+
+	err = run(ctx)
+	if err != nil {
+		log.Error(err, "Spire auth didnt work")
 	}
-
-	found := false
-	for _, secret := range secrets.Items {
-		if strings.Contains(secret.GetName(), cl.Name) {
-			secret := secret // required to prevent gosec warning: G601 (CWE-118): Implicit memory aliasing in for loop
-			clusterClient, ok := cluster.Cluster{Client: r.Client}.GetClusterClient(&secret)
-			if ok {
-				found = true
-				clusterClient, ready, err := clusterClient.GetClusterClient(ctx)
-				if err != nil {
-					msg := "cannot get clusterClient"
-					log.Error(err, msg)
-					return ctrl.Result{RequeueAfter: 30 * time.Second}, errors.Wrap(err, msg)
-				}
-				if !ready {
-					log.Info("cluster not ready")
-					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-				}
-
-				remoteNamespace := configMap.Namespace
-				// if rns, ok := configMap.GetAnnotations()[remoteNamespaceKey]; ok {
-				// 	remoteNamespace = rns
-				// }
-				// check if the remote namespace exists, if not retry
-				ns := &corev1.Namespace{}
-				if err = clusterClient.Get(ctx, types.NamespacedName{Name: remoteNamespace}, ns); err != nil {
-					if resource.IgnoreNotFound(err) != nil {
-						msg := fmt.Sprintf("cannot get namespace: %s", remoteNamespace)
-						log.Error(err, msg)
-						return ctrl.Result{RequeueAfter: 30 * time.Second}, errors.Wrap(err, msg)
-					}
-					msg := fmt.Sprintf("namespace: %s, does not exist, retry...", remoteNamespace)
-					log.Info(msg)
-					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-				}
-
-				newcr := configMap.DeepCopy()
-
-				newcr.ResourceVersion = ""
-				newcr.UID = ""
-				newcr.Namespace = remoteNamespace
-				log.Info("secret info", "secret", newcr.Annotations)
-				if err := clusterClient.Apply(ctx, newcr); err != nil {
-					msg := fmt.Sprintf("cannot apply secret to cluster %s", cl.Name)
-					log.Error(err, msg)
-					return ctrl.Result{}, errors.Wrap(err, msg)
-				}
-			}
-		}
-		if found {
-			// speeds up the loop
-			break
-		}
-	}
-
-	// Example: Update the status if necessary
 
 	return reconcile.Result{}, nil
 }
 
-func fetchJWTSVID() (string, error) {
-	_, err := workloadapi.New(context.Background(), workloadapi.WithAddr("unix:///run/spire/sockets/agent.sock"))
-	return "", err
+const (
+	serverURL  = "spire-server:8081"
+	socketPath = "unix:///spiffe-workload-api/agent.sock"
+)
+
+func run(ctx context.Context) error {
+	// Time out the example after 30 seconds. This prevents the example from hanging if the workloads are not properly registered with SPIRE.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Create client options to setup expected socket path,
+	// as default sources will use value from environment variable `SPIFFE_ENDPOINT_SOCKET`
+	clientOptions := workloadapi.WithClientOptions(workloadapi.WithAddr(socketPath))
+
+	// Create X509 source to fetch bundle certificate used to verify presented certificate from server
+	x509Source, err := workloadapi.NewX509Source(ctx, clientOptions)
+	if err != nil {
+		return fmt.Errorf("unable to create X509Source: %w", err)
+	}
+	defer x509Source.Close()
+
+	// Create a `tls.Config` with configuration to allow TLS communication, and verify that presented certificate from server has SPIFFE ID `spiffe://example.org/server`
+	serverID := spiffeid.RequireFromString("spiffe://example.org/server")
+	tlsConfig := tlsconfig.TLSClientConfig(x509Source, tlsconfig.AuthorizeID(serverID))
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	req, err := http.NewRequest("GET", serverURL, nil)
+	if err != nil {
+		return fmt.Errorf("unable to create request: %w", err)
+	}
+
+	// As default example is using server's ID,
+	// It doesn't have to be an SPIFFE ID as long it follows JWT SVIDs the guidelines (https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md#32-audience)
+	audience := serverID.String()
+	args := os.Args
+	if len(args) >= 2 {
+		audience = args[1]
+	}
+
+	// Create a JWTSource to fetch SVIDs
+	jwtSource, err := workloadapi.NewJWTSource(ctx, clientOptions)
+	if err != nil {
+		return fmt.Errorf("unable to create JWTSource: %w", err)
+	}
+	defer jwtSource.Close()
+
+	// Fetch JWT SVID and add it to `Authorization` header,
+	// It is possible to fetch JWT SVID using `workloadapi.FetchJWTSVID`
+	svid, err := jwtSource.FetchJWTSVID(ctx, jwtsvid.Params{
+		Audience: audience,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to fetch SVID: %w", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", svid.Marshal()))
+
+	res, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("unable to issue request to %q: %w", serverURL, err)
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return fmt.Errorf("error reading response body: %w", err)
+	}
+	log.Log.Info("%s", body)
+	return nil
 }
