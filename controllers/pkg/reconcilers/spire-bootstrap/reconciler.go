@@ -24,6 +24,7 @@ import (
 
 	reconcilerinterface "github.com/nephio-project/nephio/controllers/pkg/reconcilers/reconciler-interface"
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -167,4 +168,9 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Example: Update the status if necessary
 
 	return reconcile.Result{}, nil
+}
+
+func fetchJWTSVID() (string, error) {
+	_, err := workloadapi.New(context.Background(), workloadapi.WithAddr("unix:///run/spire/sockets/agent.sock"))
+	return "", err
 }
