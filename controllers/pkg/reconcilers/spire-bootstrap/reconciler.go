@@ -42,7 +42,7 @@ import (
 )
 
 func init() {
-	reconcilerinterface.Register("WorkloadIdentity", &reconciler{})
+	reconcilerinterface.Register("workloadidentity", &reconciler{})
 }
 
 // const (
