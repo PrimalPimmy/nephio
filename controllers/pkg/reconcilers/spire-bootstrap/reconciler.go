@@ -197,6 +197,15 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "Spire auth didnt work")
 	}
 
+	vaultAddr := "http://localhost:8200"
+
+	clientToken, err := authenticateToVault(vaultAddr, jwtSVID.Marshal(), "dev")
+	if err != nil {
+		log.Error(err, "Error authenticating to Vault:")
+	}
+
+	fmt.Printf("Successfully authenticated to Vault. Client token: %s\n", clientToken)
+
 	return reconcile.Result{}, nil
 }
 
