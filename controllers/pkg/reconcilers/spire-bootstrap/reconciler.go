@@ -18,13 +18,14 @@ package bootstrapsecret
 
 import (
 	"context"
-	"flag"
-	Logg "log"
 
 	reconcilerinterface "github.com/nephio-project/nephio/controllers/pkg/reconcilers/reconciler-interface"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 
 	corev1 "k8s.io/api/core/v1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -163,18 +164,27 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// // Example: Update the status if necessary
 
-	workloadAPIAddr := flag.String("workload-api-addr", "", "Workload API Address")
-	flag.Parse()
+	socketPath := "unix:///run/spire/sockets/agent.sock"
 
-	var opts []workloadapi.ClientOption
-	if *workloadAPIAddr != "" {
-		opts = append(opts, workloadapi.WithAddr(*workloadAPIAddr))
+	clientOptions := workloadapi.WithClientOptions(workloadapi.WithAddr(socketPath))
+	jwtSource, err := workloadapi.NewJWTSource(ctx, clientOptions)
+	if err != nil {
+		log.Info("Unable to create JWTSource: %v", err)
+	}
+	defer jwtSource.Close()
+
+	audience := "TESTING"
+	spiffeID := spiffeid.RequireFromString("spiffe://example.org/my-service")
+
+	jwtSVID, err := jwtSource.FetchJWTSVID(ctx, jwtsvid.Params{
+		Audience: audience,
+		Subject:  spiffeID,
+	})
+	if err != nil {
+		log.Info("Unable to fetch JWT-SVID: %v", err)
 	}
 
-	Logg.Println("Watching...")
-	err = workloadapi.WatchX509Context(context.Background(), watcher{}, opts...)
-	Logg.Fatal("Error: ", err)
-
+	log.Info("Fetched JWT-SVID: %s\n", jwtSVID.Marshal())
 	if err != nil {
 		log.Error(err, "Spire auth didnt work")
 	}
@@ -182,20 +192,20 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return reconcile.Result{}, nil
 }
 
-type watcher struct{}
+// type watcher struct{}
 
-func (watcher) OnX509ContextUpdate(x509Context *workloadapi.X509Context) {
-	Logg.Println("Update:")
-	Logg.Println("  SVIDs:")
-	for _, svid := range x509Context.SVIDs {
-		Logg.Printf("    %s\n", svid.ID)
-	}
-	Logg.Println("  Bundles:")
-	for _, bundle := range x509Context.Bundles.Bundles() {
-		Logg.Printf("    %s (%d authorities)\n", bundle.TrustDomain(), len(bundle.X509Authorities()))
-	}
-}
+// func (watcher) OnX509ContextUpdate(x509Context *workloadapi.X509Context) {
+// 	Logg.Println("Update:")
+// 	Logg.Println("  SVIDs:")
+// 	for _, svid := range x509Context.SVIDs {
+// 		Logg.Printf("    %s\n", svid.ID)
+// 	}
+// 	Logg.Println("  Bundles:")
+// 	for _, bundle := range x509Context.Bundles.Bundles() {
+// 		Logg.Printf("    %s (%d authorities)\n", bundle.TrustDomain(), len(bundle.X509Authorities()))
+// 	}
+// }
 
-func (watcher) OnX509ContextWatchError(err error) {
-	Logg.Println("Error:", err)
-}
+// func (watcher) OnX509ContextWatchError(err error) {
+// 	Logg.Println("Error:", err)
+// }
