@@ -197,7 +197,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "Spire auth didnt work")
 	}
 
-	vaultAddr := "http://172.18.0.2:8200"
+	vaultAddr := "http://10.146.0.21:8200"
 
 	clientToken, err := authenticateToVault(vaultAddr, jwtSVID.Marshal(), "dev")
 	if err != nil {
