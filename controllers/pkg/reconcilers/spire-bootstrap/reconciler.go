@@ -18,6 +18,7 @@ package bootstrapsecret
 
 import (
 	"context"
+	"fmt"
 
 	reconcilerinterface "github.com/nephio-project/nephio/controllers/pkg/reconcilers/reconciler-interface"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -184,7 +185,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Info("Unable to fetch JWT-SVID: %v", err)
 	}
 
-	log.Info("Fetched JWT-SVID: %s\n", jwtSVID.Marshal())
+	fmt.Printf("Fetched JWT-SVID: %v\n", jwtSVID.Marshal())
 	if err != nil {
 		log.Error(err, "Spire auth didnt work")
 	}
