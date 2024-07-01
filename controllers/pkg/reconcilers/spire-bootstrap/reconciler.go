@@ -17,14 +17,18 @@ limitations under the License.
 package bootstrapsecret
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 
 	reconcilerinterface "github.com/nephio-project/nephio/controllers/pkg/reconcilers/reconciler-interface"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	vault "github.com/hashicorp/vault/api"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 
@@ -41,13 +45,16 @@ func init() {
 	reconcilerinterface.Register("workloadidentity", &reconciler{})
 }
 
-// const (
-// 	clusterNameKey     = "nephio.org/cluster-name"
-// 	nephioAppKey       = "nephio.org/app"
-// 	remoteNamespaceKey = "nephio.org/remote-namespace"
-// 	syncApp            = "tobeinstalledonremotecluster"
-// 	bootstrapApp       = "bootstrap"
-// )
+type LoginPayload struct {
+	Role string `json:"role"`
+	JWT  string `json:"jwt"`
+}
+
+type AuthResponse struct {
+	Auth struct {
+		ClientToken string `json:"client_token"`
+	} `json:"auth"`
+}
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters/status,verbs=get
@@ -193,20 +200,46 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return reconcile.Result{}, nil
 }
 
-// type watcher struct{}
+func authenticateToVault(vaultAddr, jwt, role string) (string, error) {
+	// Create a Vault client
+	config := vault.DefaultConfig()
+	config.Address = vaultAddr
+	client, err := vault.NewClient(config)
+	if err != nil {
+		return "", fmt.Errorf("unable to create Vault client: %w", err)
+	}
 
-// func (watcher) OnX509ContextUpdate(x509Context *workloadapi.X509Context) {
-// 	Logg.Println("Update:")
-// 	Logg.Println("  SVIDs:")
-// 	for _, svid := range x509Context.SVIDs {
-// 		Logg.Printf("    %s\n", svid.ID)
-// 	}
-// 	Logg.Println("  Bundles:")
-// 	for _, bundle := range x509Context.Bundles.Bundles() {
-// 		Logg.Printf("    %s (%d authorities)\n", bundle.TrustDomain(), len(bundle.X509Authorities()))
-// 	}
-// }
+	// Prepare the login payload
+	payload := LoginPayload{
+		Role: role,
+		JWT:  jwt,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshal payload: %w", err)
+	}
 
-// func (watcher) OnX509ContextWatchError(err error) {
-// 	Logg.Println("Error:", err)
-// }
+	// Perform the login request
+	req := client.NewRequest("POST", "/v1/auth/jwt/login")
+	req.Body = bytes.NewBuffer(payloadBytes)
+
+	resp, err := client.RawRequest(req)
+	if err != nil {
+		return "", fmt.Errorf("unable to perform login request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("unable to read response body: %w", err)
+	}
+
+	// Parse the response
+	var authResp AuthResponse
+	if err := json.Unmarshal(body, &authResp); err != nil {
+		return "", fmt.Errorf("unable to decode response: %w", err)
+	}
+
+	return authResp.Auth.ClientToken, nil
+}
