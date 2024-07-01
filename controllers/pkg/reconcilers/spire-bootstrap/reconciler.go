@@ -174,7 +174,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	defer jwtSource.Close()
 
 	audience := "TESTING"
-	spiffeID := spiffeid.RequireFromString("spiffe://example.org/my-service")
+	spiffeID := spiffeid.RequireFromString("spiffe://example.org/nephio")
 
 	jwtSVID, err := jwtSource.FetchJWTSVID(ctx, jwtsvid.Params{
 		Audience: audience,
