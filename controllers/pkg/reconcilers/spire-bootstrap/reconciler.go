@@ -164,7 +164,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// // Example: Update the status if necessary
 
-	socketPath := "unix:///run/spire/sockets/agent.sock"
+	socketPath := "unix:///spiffe-workload-api/agent.sock"
 
 	clientOptions := workloadapi.WithClientOptions(workloadapi.WithAddr(socketPath))
 	jwtSource, err := workloadapi.NewJWTSource(ctx, clientOptions)
