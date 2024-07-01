@@ -197,7 +197,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "Spire auth didnt work")
 	}
 
-	vaultAddr := "http://localhost:8200"
+	vaultAddr := "http://172.18.0.2:8200"
 
 	clientToken, err := authenticateToVault(vaultAddr, jwtSVID.Marshal(), "dev")
 	if err != nil {
@@ -205,6 +205,25 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	fmt.Printf("Successfully authenticated to Vault. Client token: %s\n", clientToken)
+
+	// Create a Vault client
+	config := vault.DefaultConfig()
+	config.Address = vaultAddr
+	client, err := vault.NewClient(config)
+	if err != nil {
+		log.Error(err, "Unable to create Vault client:")
+	}
+
+	// Set the client token
+	client.SetToken(clientToken)
+
+	// Retrieve the secret
+	secret, err := getSecret(client, "secret/my-super-secret")
+	if err != nil {
+		log.Error(err, "Error retrieving secret:")
+	}
+
+	fmt.Printf("Secret retrieved: %v\n", secret)
 
 	return reconcile.Result{}, nil
 }
@@ -251,4 +270,18 @@ func authenticateToVault(vaultAddr, jwt, role string) (string, error) {
 	}
 
 	return authResp.Auth.ClientToken, nil
+}
+
+func getSecret(client *vault.Client, secretPath string) (map[string]interface{}, error) {
+	// Read the secret
+	secret, err := client.Logical().Read(secretPath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read secret: %w", err)
+	}
+
+	if secret == nil {
+		return nil, fmt.Errorf("secret not found at path: %s", secretPath)
+	}
+
+	return secret.Data, nil
 }
